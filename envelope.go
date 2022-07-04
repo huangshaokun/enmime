@@ -74,10 +74,10 @@ func (e *Envelope) SetHeader(name string, value []string) error {
 
 	for i, v := range value {
 		if i == 0 {
-			e.header.Set(name, mime.BEncoding.Encode("utf-8", v))
+			e.header.Set(name, mime.QEncoding.Encode("utf-8", v))
 			continue
 		}
-		e.header.Add(name, mime.BEncoding.Encode("utf-8", v))
+		e.header.Add(name, mime.QEncoding.Encode("utf-8", v))
 	}
 	return nil
 }
@@ -89,7 +89,7 @@ func (e *Envelope) AddHeader(name string, value string) error {
 		return fmt.Errorf("provide non-empty header name")
 	}
 
-	e.header.Add(name, mime.BEncoding.Encode("utf-8", value))
+	e.header.Add(name, mime.QEncoding.Encode("utf-8", value))
 	return nil
 }
 
