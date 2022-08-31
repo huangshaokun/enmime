@@ -3,7 +3,6 @@ package enmime
 import (
 	"fmt"
 	"io"
-	"mime"
 	"net/mail"
 	"net/textproto"
 	"strings"
@@ -72,10 +71,10 @@ func (e *Envelope) SetHeader(name string, value []string) error {
 
 	for i, v := range value {
 		if i == 0 {
-			e.header.Set(name, mime.BEncoding.Encode("utf-8", v))
+			e.header.Set(name, v)
 			continue
 		}
-		e.header.Add(name, mime.BEncoding.Encode("utf-8", v))
+		e.header.Add(name, v)
 	}
 	return nil
 }
@@ -87,7 +86,7 @@ func (e *Envelope) AddHeader(name string, value string) error {
 		return fmt.Errorf("Provide non-empty header name")
 	}
 
-	e.header.Add(name, mime.BEncoding.Encode("utf-8", value))
+	e.header.Add(name, value)
 	return nil
 }
 
