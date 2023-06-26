@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"mime/quotedprintable"
 	"net/textproto"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gogs/chardet"
+	"github.com/huangshaokun/mimequotedprintable"
 	"github.com/jhillyerd/enmime/internal/coding"
 	"github.com/pkg/errors"
 )
@@ -265,7 +265,7 @@ func (p *Part) decodeContent(r io.Reader) error {
 	switch strings.ToLower(encoding) {
 	case cteQuotedPrintable:
 		contentReader = coding.NewQPCleaner(contentReader)
-		contentReader = quotedprintable.NewReader(contentReader)
+		contentReader = mimequotedprintable.NewReader(contentReader)
 	case cteBase64:
 		b64cleaner = coding.NewBase64Cleaner(contentReader)
 		contentReader = base64.NewDecoder(base64.RawStdEncoding, b64cleaner)
