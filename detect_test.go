@@ -1,10 +1,11 @@
 package enmime
 
 import (
-	"net/textproto"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/jhillyerd/enmime/internal/textproto"
 )
 
 func TestDetectSinglePart(t *testing.T) {
@@ -14,7 +15,7 @@ func TestDetectSinglePart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if detectMultipartMessage(msg) {
+	if detectMultipartMessage(msg, false) {
 		t.Error("Failed to identify non-multipart message")
 	}
 }
@@ -26,7 +27,7 @@ func TestDetectMultiPart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !detectMultipartMessage(msg) {
+	if !detectMultipartMessage(msg, false) {
 		t.Error("Failed to identify multipart MIME message")
 	}
 }
@@ -38,8 +39,24 @@ func TestDetectUnknownMultiPart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !detectMultipartMessage(msg) {
+	if !detectMultipartMessage(msg, false) {
 		t.Error("Failed to identify multipart MIME message of unknown type")
+	}
+}
+
+func TestDetectMultipartWithoutBoundary(t *testing.T) {
+	r, _ := os.Open(filepath.Join("testdata", "mail", "multipart-wo-boundary.raw"))
+	msg, err := ReadParts(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !detectMultipartMessage(msg, false) {
+		t.Error("Failed to identify multipart MIME message")
+	}
+
+	if detectMultipartMessage(msg, true) {
+		t.Error("Failed to identify multipart MIME message without boundaries as single-part")
 	}
 }
 
@@ -124,8 +141,10 @@ func TestDetectAttachmentHeader(t *testing.T) {
 		},
 	}
 
+	root := &Part{parser: &defaultParser}
+
 	for _, s := range htests {
-		got := detectAttachmentHeader(s.header)
+		got := detectAttachmentHeader(root, s.header)
 		if got != s.want {
 			t.Errorf("detectAttachmentHeader(%v) == %v, want: %v", s.header, got, s.want)
 		}
@@ -175,8 +194,10 @@ func TestDetectTextHeader(t *testing.T) {
 		},
 	}
 
+	root := &Part{parser: &defaultParser}
+
 	for _, s := range htests {
-		got := detectTextHeader(s.header, s.emptyIsPlain)
+		got := detectTextHeader(root, s.header, s.emptyIsPlain)
 		if got != s.want {
 			t.Errorf("detectTextHeader(%v, %v) == %v, want: %v",
 				s.header, s.emptyIsPlain, got, s.want)

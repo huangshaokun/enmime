@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"regexp"
 	"strings"
 
+	"github.com/cention-sany/utf7"
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/encoding/japanese"
@@ -28,6 +28,8 @@ var encodings = map[string]struct {
 	"unicode-1-1-utf-8":   {encoding.Nop, utf8},
 	"utf-8":               {encoding.Nop, utf8},
 	"utf8":                {encoding.Nop, utf8},
+	"utf-7":               {utf7.UTF7, "utf-7"},
+	"utf7":                {utf7.UTF7, "utf-7"},
 	"866":                 {charmap.CodePage866, "ibm866"},
 	"cp866":               {charmap.CodePage866, "ibm866"},
 	"csibm866":            {charmap.CodePage866, "ibm866"},
@@ -245,12 +247,40 @@ var encodings = map[string]struct {
 	"iso646-us":           {charmap.Windows1252, "windows-1252"}, // ISO646 isn't us-ascii but 1991 version is.
 	"iso: western":        {charmap.Windows1252, "windows-1252"}, // same as iso-8859-1
 	"we8iso8859p1":        {charmap.Windows1252, "windows-1252"}, // same as iso-8859-1
-	"iso=8859-1":          {charmap.Windows1252, "windows-1252"}, // same as iso-8859-1
 	"cp936":               {simplifiedchinese.GBK, "gbk"},        // same as gb2312
 	"cp850":               {charmap.CodePage850, "cp850"},
 	"cp-850":              {charmap.CodePage850, "cp850"},
 	"ibm850":              {charmap.CodePage850, "cp850"},
 	"136":                 {traditionalchinese.Big5, "big5"}, // same as chinese big5
+	"cp932":               {japanese.ShiftJIS, "shift_jis"},
+	"8859-1":              {charmap.Windows1252, "windows-1252"},
+	"8859_1":              {charmap.Windows1252, "windows-1252"},
+	"8859-2":              {charmap.ISO8859_2, "iso-8859-2"},
+	"8859_2":              {charmap.ISO8859_2, "iso-8859-2"},
+	"8859-3":              {charmap.ISO8859_3, "iso-8859-3"},
+	"8859_3":              {charmap.ISO8859_3, "iso-8859-3"},
+	"8859-4":              {charmap.ISO8859_4, "iso-8859-4"},
+	"8859_4":              {charmap.ISO8859_4, "iso-8859-4"},
+	"8859-5":              {charmap.ISO8859_5, "iso-8859-5"},
+	"8859_5":              {charmap.ISO8859_5, "iso-8859-5"},
+	"8859-6":              {charmap.ISO8859_6, "iso-8859-6"},
+	"8859_6":              {charmap.ISO8859_6, "iso-8859-6"},
+	"8859-7":              {charmap.ISO8859_7, "iso-8859-7"},
+	"8859_7":              {charmap.ISO8859_7, "iso-8859-7"},
+	"8859-8":              {charmap.ISO8859_8, "iso-8859-8"},
+	"8859_8":              {charmap.ISO8859_8, "iso-8859-8"},
+	"8859-10":             {charmap.ISO8859_10, "iso-8859-10"},
+	"8859_10":             {charmap.ISO8859_10, "iso-8859-10"},
+	"8859-13":             {charmap.ISO8859_13, "iso-8859-13"},
+	"8859_13":             {charmap.ISO8859_13, "iso-8859-13"},
+	"8859-14":             {charmap.ISO8859_14, "iso-8859-14"},
+	"8859_14":             {charmap.ISO8859_14, "iso-8859-14"},
+	"8859-15":             {charmap.ISO8859_15, "iso-8859-15"},
+	"8859_15":             {charmap.ISO8859_15, "iso-8859-15"},
+	"8859-16":             {charmap.ISO8859_16, "iso-8859-16"},
+	"8859_16":             {charmap.ISO8859_16, "iso-8859-16"},
+	"utf8mb4":             {encoding.Nop, "utf-8"}, // emojis, but golang can handle it directly
+	"238":                 {charmap.Windows1250, "windows-1250"},
 }
 
 var metaTagCharsetRegexp = regexp.MustCompile(
@@ -270,16 +300,13 @@ func init() {
 // ConvertToUTF8String uses the provided charset to decode a slice of bytes into a normal
 // UTF-8 string.
 func ConvertToUTF8String(charset string, textBytes []byte) (string, error) {
-	if strings.ToLower(charset) == utf8 {
-		return string(textBytes), nil
-	}
 	csentry, ok := encodings[strings.ToLower(charset)]
 	if !ok {
-		return "", fmt.Errorf("Unsupported charset %q", charset)
+		return "", fmt.Errorf("unsupported charset %q", charset)
 	}
 	input := bytes.NewReader(textBytes)
 	reader := transform.NewReader(input, csentry.e.NewDecoder())
-	output, err := ioutil.ReadAll(reader)
+	output, err := io.ReadAll(reader)
 	if err != nil {
 		return "", err
 	}
@@ -296,7 +323,7 @@ func NewCharsetReader(charset string, input io.Reader) (io.Reader, error) {
 	}
 	csentry, ok := encodings[strings.ToLower(charset)]
 	if !ok {
-		return nil, fmt.Errorf("Unsupported charset %q", charset)
+		return nil, fmt.Errorf("unsupported charset %q", charset)
 	}
 	return transform.NewReader(input, csentry.e.NewDecoder()), nil
 }

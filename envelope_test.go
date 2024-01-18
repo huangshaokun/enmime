@@ -2,9 +2,12 @@ package enmime_test
 
 import (
 	"bytes"
+	"fmt"
+	"net/mail"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-test/deep"
 	"github.com/jhillyerd/enmime"
@@ -31,6 +34,12 @@ func TestParseHeaderOnly(t *testing.T) {
 	}
 	if len(e.Root.Header) != 7 {
 		t.Errorf("Expected 7 headers, got %d", len(e.Root.Header))
+	}
+	dt, err := e.Date()
+	if err != nil {
+		t.Errorf("Failed to parse Date header: %v", err)
+	} else if !dt.Equal(time.Date(2012, time.October, 19, 5, 48, 39, 0, time.UTC)) {
+		t.Errorf("Incorrect date parsed: %s", dt)
 	}
 }
 
@@ -157,6 +166,20 @@ func TestParseMultiMixedText(t *testing.T) {
 	want := "Section one\n\n--\nSection two"
 	if e.Text != want {
 		t.Error("Text parts should concatenate, got:", e.Text, "want:", want)
+	}
+}
+
+func TestParseMultiMixedRelatedHtml(t *testing.T) {
+	msg := test.OpenTestData("mail", "mime-mixed-related.raw")
+	e, err := enmime.ReadEnvelope(msg)
+
+	if err != nil {
+		t.Fatal("Failed to parse MIME:", err)
+	}
+
+	want := "<p>html1</p>"
+	if e.HTML != want {
+		t.Error("Text parts should concatenate, got:", e.HTML, "want:", want)
 	}
 }
 
@@ -566,6 +589,31 @@ func TestParseHTMLOnlyCharsetInHeaderOnly(t *testing.T) {
 	}
 }
 
+func TestParseMultipartWOBoundaryFails(t *testing.T) {
+	r := test.OpenTestData("mail", "multipart-wo-boundary.raw")
+	_, err := enmime.ReadEnvelope(r)
+	if err == nil {
+		t.Fatal("Expecting parsing to fail")
+	}
+
+	if !strings.Contains(err.Error(), "unable to locate boundary param in Content-Type header") {
+		t.Fatal("Expecting for unable to locate boundary error")
+	}
+}
+
+func TestParseMultipartWOBoundaryAsSinglepart(t *testing.T) {
+	r := test.OpenTestData("mail", "multipart-wo-boundary.raw")
+	p := enmime.NewParser(enmime.MultipartWOBoundaryAsSinglePart(true))
+	e, err := p.ReadEnvelope(r)
+	if err != nil {
+		t.Fatal("Failed to parse MIME:", err)
+	}
+
+	if !bytes.Contains(e.Root.Content, []byte(`I'm  multipart message without boundary`)) {
+		t.Fatal("Expecting multipart without boundary to be parsed")
+	}
+}
+
 func TestEnvelopeGetHeader(t *testing.T) {
 	// Test empty header
 	e := &enmime.Envelope{}
@@ -621,7 +669,7 @@ func TestEnvelopeGetHeaderKeys(t *testing.T) {
 
 	want := []string{"Date", "From", "Subject", "To", "X-Mailer"}
 	got = e.GetHeaderKeys()
-	sort.Sort(sort.StringSlice(got))
+	sort.Strings(got)
 	test.DiffStrings(t, got, want)
 
 	// Test UTF-8 subject line
@@ -633,7 +681,7 @@ func TestEnvelopeGetHeaderKeys(t *testing.T) {
 
 	want = []string{"Content-Type", "Date", "From", "Message-Id", "Mime-Version", "Sender", "Subject", "To", "User-Agent"}
 	got = e.GetHeaderKeys()
-	sort.Sort(sort.StringSlice(got))
+	sort.Strings(got)
 	test.DiffStrings(t, got, want)
 }
 
@@ -667,7 +715,10 @@ func TestEnvelopeSetHeader(t *testing.T) {
 
 	// replace existing header
 	want := "André Pirard <PIRARD@vm1.ulg.ac.be>"
-	e.SetHeader("To", []string{want})
+	err = e.SetHeader("To", []string{want})
+	if err != nil {
+		t.Fatal(err)
+	}
 	got := e.GetHeader("To")
 	if got != want {
 		t.Errorf("Got: %q, want: %q", got, want)
@@ -675,7 +726,10 @@ func TestEnvelopeSetHeader(t *testing.T) {
 
 	// replace existing header with multiple values
 	wantSlice := []string{"Mirosław Marczak <marczak@inbucket.com>", "James Hillyerd <jamehi03@jamehi03lx.noa.com>"}
-	e.SetHeader("To", wantSlice)
+	err = e.SetHeader("To", wantSlice)
+	if err != nil {
+		t.Fatal(err)
+	}
 	gotSlice := e.GetHeaderValues("to")
 	diff := deep.Equal(gotSlice, wantSlice)
 	if diff != nil {
@@ -684,7 +738,10 @@ func TestEnvelopeSetHeader(t *testing.T) {
 
 	// replace non-existing header
 	want = "foobar"
-	e.SetHeader("X-Foo-Bar", []string{want})
+	err = e.SetHeader("X-Foo-Bar", []string{want})
+	if err != nil {
+		t.Fatal(err)
+	}
 	got = e.GetHeader("X-Foo-Bar")
 	if got != want {
 		t.Errorf("Got: %q, want: %q", got, want)
@@ -700,8 +757,11 @@ func TestEnvelopeAddHeader(t *testing.T) {
 
 	// add to existing header
 	to := "James Hillyerd <jamehi03@jamehi03lx.noa.com>"
-	wantSlice := []string{"Mirosław Marczak <marczak@inbucket.com>", "James Hillyerd <jamehi03@jamehi03lx.noa.com>"}
-	e.AddHeader("To", to)
+	wantSlice := []string{"\"Mirosław Marczak\" <marczak@inbucket.com>", "James Hillyerd <jamehi03@jamehi03lx.noa.com>"}
+	err = e.AddHeader("To", to)
+	if err != nil {
+		t.Fatal(err)
+	}
 	gotSlice := e.GetHeaderValues("To")
 	diff := deep.Equal(gotSlice, wantSlice)
 	if diff != nil {
@@ -710,7 +770,10 @@ func TestEnvelopeAddHeader(t *testing.T) {
 
 	// add to non-existing header
 	want := "foobar"
-	e.AddHeader("X-Foo-Bar", want)
+	err = e.AddHeader("X-Foo-Bar", want)
+	if err != nil {
+		t.Fatal(err)
+	}
 	got := e.GetHeader("X-Foo-Bar")
 	if got != want {
 		t.Errorf("Got: %q, want: %q", got, want)
@@ -725,11 +788,107 @@ func TestEnvelopeDeleteHeader(t *testing.T) {
 	}
 
 	// delete user-agent header
-	e.DeleteHeader("User-Agent")
+	err = e.DeleteHeader("User-Agent")
+	if err != nil {
+		t.Fatal(err)
+	}
 	got := e.GetHeader("User-Agent")
 	want := ""
 	if got != want {
 		t.Errorf("Got: %q, want: %q", got, want)
+	}
+}
+
+func TestEnvelopeAddressListInDifferentFormats(t *testing.T) {
+	template := `Date: Mon, 23 Jun 2015 11:40:36 -0400
+From: Gopher <from@example.com>
+To: %s
+Subject: Gophers at Gophercon
+
+Message body
+
+`
+	testCases := []struct {
+		input string
+		want  []*mail.Address
+	}{
+		{
+			"Example User <user@example.com>",
+			[]*mail.Address{{
+				Name:    "Example User",
+				Address: "user@example.com"}},
+		},
+		{
+			"a@h, b@h, c@h",
+			[]*mail.Address{
+				{Name: "", Address: "a@h"},
+				{Name: "", Address: "b@h"},
+				{Name: "", Address: "c@h"},
+			},
+		},
+		{
+			"=?utf-8?Q?ze=3AStore=20?= =?utf-8?Q?Orange=20?= =?utf-8?Q?Premium=20?= =?utf-8?Q?Reseller?= <noreply@mail.zestore.ru>",
+			[]*mail.Address{{
+				Name:    "ze:Store Orange Premium Reseller",
+				Address: "noreply@mail.zestore.ru"}},
+		},
+		{
+			`"=?UTF-8?Q?Miros=C5=82aw_Marczak?=" <marczak@inbucket.com>`,
+			[]*mail.Address{{
+				Name:    "Mirosław Marczak",
+				Address: "marczak@inbucket.com",
+			}},
+		},
+		{
+			"a@example.com;b@example.com",
+			[]*mail.Address{
+				{Name: "", Address: "a@example.com"},
+				{Name: "", Address: "b@example.com"},
+			},
+		},
+		{
+			`"Joe @ Company" <joe@company.com>;<other@company.com>`,
+			[]*mail.Address{
+				{Name: "Joe @ Company", Address: "joe@company.com"},
+				{Name: "", Address: "other@company.com"},
+			},
+		},
+		{
+			`=?UTF-8?B?dGVzdG5hbWU=?= <=?UTF-8?B?dGVzdG5hbWU=?=@example.com>`,
+			[]*mail.Address{
+				{Name: "testname", Address: "testname@example.com"},
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.input, func(t *testing.T) {
+			r := strings.NewReader(fmt.Sprintf(template, tc.input))
+			e, err := enmime.ReadEnvelope(r)
+			if err != nil {
+				t.Errorf("Failed to read envelope for %q:\n%v", tc.input, err)
+				return
+			}
+
+			got, err := e.AddressList("to")
+			if err != nil {
+				t.Errorf("Failed to parse address list %q:\n%v", tc.input, err)
+				return
+			}
+
+			if len(got) != len(tc.want) {
+				t.Errorf("Got %v addresses, wanted %v", len(got), len(tc.want))
+				return
+			}
+
+			for i, want := range tc.want {
+				if got[i].Name != want.Name {
+					t.Errorf("Got Name %q, wanted %q", got[i].Name, want.Name)
+				}
+				if got[i].Address != want.Address {
+					t.Errorf("Got Address %q, wanted %q", got[i].Address, want.Address)
+				}
+			}
+		})
 	}
 }
 
@@ -738,13 +897,18 @@ func TestEnvelopeAddressList(t *testing.T) {
 	e := &enmime.Envelope{}
 	_, err := e.AddressList("To")
 	if err == nil {
-		t.Error("AddressList(\"Subject\") should have returned err, got nil")
+		t.Error("AddressList(\"To\") should have returned err, got nil")
 	}
 
 	r := test.OpenTestData("mail", "qp-utf8-header.raw")
 	e, err = enmime.ReadEnvelope(r)
 	if err != nil {
 		t.Fatal("Failed to parse MIME:", err)
+	}
+
+	_, err = e.AddressList("BCC")
+	if err == nil {
+		t.Error("AddressList(\"BCC\") should have returned err, got nil")
 	}
 
 	_, err = e.AddressList("Subject")
@@ -916,6 +1080,24 @@ func TestBadContentTransferEncodingInMime(t *testing.T) {
 	}
 	if !expectedErrorPresent {
 		t.Fatal("Mail should have a severe malformed base64 error")
+	}
+}
+
+func TestBadMime8bitFilename(t *testing.T) {
+	msg := test.OpenTestData("mail", "mime-bad-8bit-filename.raw")
+	e, err := enmime.ReadEnvelope(msg)
+
+	if err != nil {
+		t.Fatal("Failed to parse MIME:", err)
+	}
+	if strings.TrimSpace(e.Text) != "Text part" {
+		t.Fatal("Text part not parsed correctly")
+	}
+	if len(e.Attachments) != 1 {
+		t.Fatal("Wrong number of attachments")
+	}
+	if e.Attachments[0].FileName != "管理.doc" {
+		t.Fatal("Wrong attachment name")
 	}
 }
 
@@ -1105,4 +1287,43 @@ func TestCloneEnvelope(t *testing.T) {
 	}
 	clone := e.Clone()
 	test.CompareEnvelope(t, clone, e)
+}
+
+func TestNilHeaderValues(t *testing.T) {
+	e := &enmime.Envelope{}
+	values := e.GetHeaderValues("")
+	if len(values) > 0 {
+		t.Fatal("No header values should be available, failed")
+	}
+}
+
+func TestSetHeaderEmptyName(t *testing.T) {
+	e := &enmime.Envelope{}
+	err := e.SetHeader("", nil)
+	if err == nil || err.Error() != "provide non-empty header name" {
+		t.Fatal("Cannot set a header without a name, failed")
+	}
+}
+
+func TestAddHeaderEmptyName(t *testing.T) {
+	e := &enmime.Envelope{}
+	err := e.AddHeader("", "")
+	if err == nil || err.Error() != "provide non-empty header name" {
+		t.Fatal("Cannot add a header without a name, failed")
+	}
+}
+
+func TestDeleteHeaderEmptyName(t *testing.T) {
+	e := &enmime.Envelope{}
+	err := e.DeleteHeader("")
+	if err == nil || err.Error() != "provide non-empty header name" {
+		t.Fatal("Cannot add a header without a name, failed")
+	}
+}
+
+func TestNilEnvelopeClone(t *testing.T) {
+	var e *enmime.Envelope
+	if e.Clone() != nil {
+		t.Fatal("Clone of nil envelope is not nil, failed")
+	}
 }

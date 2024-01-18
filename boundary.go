@@ -5,7 +5,6 @@ import (
 	"bytes"
 	stderrors "errors"
 	"io"
-	"io/ioutil"
 	"unicode"
 
 	"github.com/pkg/errors"
@@ -19,15 +18,15 @@ const peekBufferSize = 4096
 var errNoBoundaryTerminator = stderrors.New("expected boundary not present")
 
 type boundaryReader struct {
-	finished         bool          // No parts remain when finished
-	partsRead        int           // Number of parts read thus far
-	r                *bufio.Reader // Source reader
-	nlPrefix         []byte        // NL + MIME boundary prefix
-	prefix           []byte        // MIME boundary prefix
-	final            []byte        // Final boundary prefix
-	buffer           *bytes.Buffer // Content waiting to be read
-	crBoundaryPrefix bool          // Flag for CR in CRLF + MIME boundary
-	unbounded        bool          // Flag to throw errNoBoundaryTerminator
+	finished    bool          // No parts remain when finished
+	partsRead   int           // Number of parts read thus far
+	atPartStart bool          // Whether the current part is at its beginning
+	r           *bufio.Reader // Source reader
+	nlPrefix    []byte        // NL + MIME boundary prefix
+	prefix      []byte        // MIME boundary prefix
+	final       []byte        // Final boundary prefix
+	buffer      *bytes.Buffer // Content waiting to be read
+	unbounded   bool          // Flag to throw errNoBoundaryTerminator
 }
 
 // newBoundaryReader returns an initialized boundaryReader
@@ -44,39 +43,45 @@ func newBoundaryReader(reader *bufio.Reader, boundary string) *boundaryReader {
 
 // Read returns a buffer containing the content up until boundary
 //
-//   Excerpt from io package on io.Reader implementations:
+//	Excerpt from io package on io.Reader implementations:
 //
-//     type Reader interface {
-//        Read(p []byte) (n int, err error)
-//     }
+//	  type Reader interface {
+//	     Read(p []byte) (n int, err error)
+//	  }
 //
-//     Read reads up to len(p) bytes into p. It returns the number of
-//     bytes read (0 <= n <= len(p)) and any error encountered. Even
-//     if Read returns n < len(p), it may use all of p as scratch space
-//     during the call. If some data is available but not len(p) bytes,
-//     Read conventionally returns what is available instead of waiting
-//     for more.
+//	  Read reads up to len(p) bytes into p. It returns the number of
+//	  bytes read (0 <= n <= len(p)) and any error encountered. Even
+//	  if Read returns n < len(p), it may use all of p as scratch space
+//	  during the call. If some data is available but not len(p) bytes,
+//	  Read conventionally returns what is available instead of waiting
+//	  for more.
 //
-//     When Read encounters an error or end-of-file condition after
-//     successfully reading n > 0 bytes, it returns the number of bytes
-//     read. It may return the (non-nil) error from the same call or
-//     return the error (and n == 0) from a subsequent call. An instance
-//     of this general case is that a Reader returning a non-zero number
-//     of bytes at the end of the input stream may return either err == EOF
-//     or err == nil. The next Read should return 0, EOF.
+//	  When Read encounters an error or end-of-file condition after
+//	  successfully reading n > 0 bytes, it returns the number of bytes
+//	  read. It may return the (non-nil) error from the same call or
+//	  return the error (and n == 0) from a subsequent call. An instance
+//	  of this general case is that a Reader returning a non-zero number
+//	  of bytes at the end of the input stream may return either err == EOF
+//	  or err == nil. The next Read should return 0, EOF.
 //
-//     Callers should always process the n > 0 bytes returned before
-//     considering the error err. Doing so correctly handles I/O errors
-//     that happen after reading some bytes and also both of the allowed
-//     EOF behaviors.
+//	  Callers should always process the n > 0 bytes returned before
+//	  considering the error err. Doing so correctly handles I/O errors
+//	  that happen after reading some bytes and also both of the allowed
+//	  EOF behaviors.
 func (b *boundaryReader) Read(dest []byte) (n int, err error) {
 	if b.buffer.Len() >= len(dest) {
 		// This read request can be satisfied entirely by the buffer.
-		return b.buffer.Read(dest)
+		n, err = b.buffer.Read(dest)
+		if b.atPartStart && n > 0 {
+			b.atPartStart = false
+		}
+
+		return n, err
 	}
 
-	for i := 0; i < cap(dest); i++ {
-		cs, err := b.r.Peek(1)
+	for i := 0; i < len(dest); i++ {
+		var cs []byte
+		cs, err = b.r.Peek(1)
 		if err != nil && err != io.EOF {
 			return 0, errors.WithStack(err)
 		}
@@ -93,10 +98,19 @@ func (b *boundaryReader) Read(dest []byte) (n int, err error) {
 			// Check for line feed as potential LF boundary prefix.
 			case '\n':
 				check = true
+
+			default:
+				if b.atPartStart {
+					// If we're at the very beginning of the part (even before the headers),
+					// check to see if there's a delimiter that immediately follows.
+					padding = 0
+					check = true
+				}
 			}
 
 			if check {
-				peek, err := b.r.Peek(len(b.nlPrefix) + padding + 1)
+				var peek []byte
+				peek, err = b.r.Peek(len(b.nlPrefix) + padding + 1)
 				switch err {
 				case nil:
 					// Check the whitespace at the head of the peek to avoid checking for a boundary early.
@@ -113,6 +127,9 @@ func (b *boundaryReader) Read(dest []byte) (n int, err error) {
 						n, err = b.buffer.Read(dest)
 						switch err {
 						case nil, io.EOF:
+							if b.atPartStart && n > 0 {
+								b.atPartStart = false
+							}
 							return n, io.EOF
 						default:
 							return 0, errors.WithStack(err)
@@ -129,18 +146,27 @@ func (b *boundaryReader) Read(dest []byte) (n int, err error) {
 			}
 		}
 
-		_, err = io.CopyN(b.buffer, b.r, 1)
+		var next byte
+		next, err = b.r.ReadByte()
 		if err != nil {
 			// EOF is not fatal, it just means that we have drained the reader.
-			if errors.Cause(err) == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
-			return 0, err
+
+			return 0, errors.WithStack(err)
+		}
+
+		if err = b.buffer.WriteByte(next); err != nil {
+			return 0, errors.WithStack(err)
 		}
 	}
 
 	// Read the contents of the buffer into the destination slice.
 	n, err = b.buffer.Read(dest)
+	if b.atPartStart && n > 0 {
+		b.atPartStart = false
+	}
 	return n, err
 }
 
@@ -151,13 +177,28 @@ func (b *boundaryReader) Next() (bool, error) {
 	}
 	if b.partsRead > 0 {
 		// Exhaust the current part to prevent errors when moving to the next part.
-		_, _ = io.Copy(ioutil.Discard, b)
+		_, _ = io.Copy(io.Discard, b)
 	}
 	for {
-		line, err := b.r.ReadSlice('\n')
-		if err != nil && err != io.EOF {
-			return false, errors.WithStack(err)
+		var line []byte = nil
+		var err error
+		for {
+			// Read whole line, handle extra long lines in cycle
+			var segment []byte
+			segment, err = b.r.ReadSlice('\n')
+			if line == nil {
+				line = segment
+			} else {
+				line = append(line, segment...)
+			}
+
+			if err == nil || err == io.EOF {
+				break
+			} else if err != bufio.ErrBufferFull || len(segment) == 0 {
+				return false, errors.WithStack(err)
+			}
 		}
+
 		if len(line) > 0 && (line[0] == '\r' || line[0] == '\n') {
 			// Blank line
 			continue
@@ -169,6 +210,7 @@ func (b *boundaryReader) Next() (bool, error) {
 		if err != io.EOF && b.isDelimiter(line) {
 			// Start of a new part.
 			b.partsRead++
+			b.atPartStart = true
 			return true, nil
 		}
 		if err == io.EOF {

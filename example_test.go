@@ -12,8 +12,11 @@ import (
 
 // ExampleBuilder illustrates how to build and send a MIME encoded message.
 func ExampleBuilder() {
+	// Create an SMTP Sender which relies on Go's built-in net/smtp package.  Advanced users
+	// may provide their own Sender, or mock it in unit tests.
 	smtpHost := "smtp.relay.host:25"
 	smtpAuth := smtp.PlainAuth("", "user", "pw", "host")
+	sender := enmime.NewSMTP(smtpHost, smtpAuth)
 
 	// MailBuilder is (mostly) immutable, each method below returns a new MailBuilder without
 	// modifying the original.
@@ -25,10 +28,16 @@ func ExampleBuilder() {
 
 	// master is immutable, causing each msg below to have a single recipient.
 	msg := master.To("Esteemed Customer", "user1@inbucket.org")
-	msg.Send(smtpHost, smtpAuth)
+	err := msg.Send(sender)
+	if err != nil {
+		panic(err)
+	}
 
 	msg = master.To("Another Customer", "user2@inbucket.org")
-	msg.Send(smtpHost, smtpAuth)
+	err = msg.Send(sender)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func ExampleReadEnvelope() {
@@ -197,7 +206,7 @@ func ExampleEnvelope_GetHeaderKeys() {
 
 	// A list of headers is retrieved via Envelope.GetHeaderKeys().
 	headers := env.GetHeaderKeys()
-	sort.Sort(sort.StringSlice(headers))
+	sort.Strings(headers)
 
 	// Print each header, key and value.
 	for _, header := range headers {
@@ -212,6 +221,6 @@ func ExampleEnvelope_GetHeaderKeys() {
 	// Mime-Version: 1.0
 	// Sender: André Pirard <PIRARD@vm1.ulg.ac.be>
 	// Subject: MIME UTF8 Test ¢ More Text
-	// To: Mirosław Marczak <marczak@inbucket.com>
+	// To: "Mirosław Marczak" <marczak@inbucket.com>
 	// User-Agent: Mozilla/5.0 (Windows NT 6.1; WOW64; rv:16.0) Gecko/20121010 Thunderbird/16.0.1
 }

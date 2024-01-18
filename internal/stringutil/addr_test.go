@@ -46,3 +46,75 @@ func TestJoinAddressMany(t *testing.T) {
 		t.Errorf("got: %q, want: %q", got, want)
 	}
 }
+
+func TestCommaDelimitedAddressLists(t *testing.T) {
+	testData := []struct {
+		have string
+		want string
+	}{
+		{
+			have: `"Joe @ Company" <joe@company.com> <other@company.com>`,
+			want: `"Joe @ Company" <joe@company.com>, <other@company.com>`,
+		},
+		{
+			have: `Joe Company <joe@company.com> <other@company.com>`,
+			want: `Joe Company <joe@company.com>, <other@company.com>`,
+		},
+		{
+			have: `Joe Company:Joey <joe@company.com> John <other@company.com>;`,
+			want: `Joe Company:Joey <joe@company.com>, John <other@company.com>`,
+		},
+		{
+			have: `Joe Company:Joey <joe@company.com> John <other@company.com>; Jimmy John <jimmy.john@company.com>`,
+			want: `Joe Company:Joey <joe@company.com>, John <other@company.com>, Jimmy John <jimmy.john@company.com>`,
+		},
+		{
+			have: `Joe Company <joe@company.com> John Company <other@company.com>`,
+			want: `Joe Company <joe@company.com>, John Company <other@company.com>`,
+		},
+		{
+			have: `Joe Company <joe@company.com>,John Company <other@company.com>`,
+			want: `Joe Company <joe@company.com>,John Company <other@company.com>`,
+		},
+		{
+			have: `joe@company.com other@company.com`,
+			want: `joe@company.com, other@company.com`,
+		},
+		{
+			have: `Jimmy John <jimmy.john@company.com> joe@company.com other@company.com`,
+			want: `Jimmy John <jimmy.john@company.com>, joe@company.com, other@company.com`,
+		},
+		{
+			have: `Jimmy John <jimmy.john@company.com> joe@company.com John Company <other@company.com>`,
+			want: `Jimmy John <jimmy.john@company.com>, joe@company.com, John Company <other@company.com>`,
+		},
+		{
+			have: `<boss@nil.test> "Giant; \"Big\" Box" <sysservices@example.net>`,
+			want: `<boss@nil.test>, "Giant; \"Big\" Box" <sysservices@example.net>`,
+		},
+		{
+			have: `A Group:Ed Jones <c@a.test>,joe@where.test,John <jdoe@one.test>;`,
+			want: `A Group:Ed Jones <c@a.test>,joe@where.test,John <jdoe@one.test>`,
+		},
+		{
+			have: `A Group:Ed Jones <c@a.test> joe@where.test John <jdoe@one.test>;`,
+			want: `A Group:Ed Jones <c@a.test>, joe@where.test, John <jdoe@one.test>`,
+		},
+		{
+			have: "a@example.com;b@example.com",
+			want: "a@example.com,b@example.com",
+		},
+		{
+			have: `"Joe @ Company" <joe@company.com>;<other@company.com>`,
+			want: `"Joe @ Company" <joe@company.com>,<other@company.com>`,
+		},
+	}
+	for _, tt := range testData {
+		t.Run(tt.have, func(t *testing.T) {
+			v := stringutil.EnsureCommaDelimitedAddresses(tt.have)
+			if tt.want != v {
+				t.Errorf("got: %q\nwant: %q", v, tt.want)
+			}
+		})
+	}
+}

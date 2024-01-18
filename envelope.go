@@ -6,9 +6,11 @@ import (
 	"net/mail"
 	"net/textproto"
 	"strings"
+	"time"
 
 	"github.com/jaytaylor/html2text"
 	"github.com/jhillyerd/enmime/internal/coding"
+	inttp "github.com/jhillyerd/enmime/internal/textproto"
 	"github.com/pkg/errors"
 )
 
@@ -44,7 +46,7 @@ func (e *Envelope) GetHeader(name string) string {
 	if e.header == nil {
 		return ""
 	}
-	return decodeHeader(e.header.Get(name))
+	return coding.DecodeExtHeader(e.header.Get(name))
 }
 
 // GetHeaderValues processes the specified header for RFC 2047 encoded words and returns all existing
@@ -54,10 +56,10 @@ func (e *Envelope) GetHeaderValues(name string) []string {
 		return []string{}
 	}
 
-	rawValues := (*e.header)[textproto.CanonicalMIMEHeaderKey(name)]
-	var values []string
+	rawValues := (*e.header)[inttp.CanonicalEmailMIMEHeaderKey(name)]
+	values := make([]string, 0, len(rawValues))
 	for _, v := range rawValues {
-		values = append(values, decodeHeader(v))
+		values = append(values, coding.DecodeExtHeader(v))
 	}
 	return values
 }
@@ -66,7 +68,7 @@ func (e *Envelope) GetHeaderValues(name string) []string {
 // If the header exists already, all existing values are replaced.
 func (e *Envelope) SetHeader(name string, value []string) error {
 	if name == "" {
-		return fmt.Errorf("Provide non-empty header name")
+		return fmt.Errorf("provide non-empty header name")
 	}
 
 	for i, v := range value {
@@ -83,7 +85,7 @@ func (e *Envelope) SetHeader(name string, value []string) error {
 // If the header does not exist already, it will be created.
 func (e *Envelope) AddHeader(name string, value string) error {
 	if name == "" {
-		return fmt.Errorf("Provide non-empty header name")
+		return fmt.Errorf("provide non-empty header name")
 	}
 
 	e.header.Add(name, value)
@@ -93,7 +95,7 @@ func (e *Envelope) AddHeader(name string, value string) error {
 // DeleteHeader deletes given header.
 func (e *Envelope) DeleteHeader(name string) error {
 	if name == "" {
-		return fmt.Errorf("Provide non-empty header name")
+		return fmt.Errorf("provide non-empty header name")
 	}
 
 	e.header.Del(name)
@@ -103,33 +105,22 @@ func (e *Envelope) DeleteHeader(name string) error {
 // AddressList returns a mail.Address slice with RFC 2047 encoded names converted to UTF-8
 func (e *Envelope) AddressList(key string) ([]*mail.Address, error) {
 	if e.header == nil {
-		return nil, fmt.Errorf("No headers available")
+		return nil, fmt.Errorf("no headers available")
 	}
 	if !AddressHeaders[strings.ToLower(key)] {
 		return nil, fmt.Errorf("%s is not an address header", key)
 	}
 
-	str := decodeToUTF8Base64Header(e.header.Get(key))
-	if str == "" {
-		return nil, mail.ErrHeaderNotPresent
-	}
+	return ParseAddressList(e.header.Get(key))
+}
 
-	// These statements are handy for debugging ParseAddressList errors
-	// fmt.Println("in:  ", m.header.Get(key))
-	// fmt.Println("out: ", str)
-	ret, err := mail.ParseAddressList(str)
-	switch {
-	case err == nil:
-		// carry on
-	case err.Error() == "mail: expected comma":
-		ret, err = mail.ParseAddressList(ensureCommaDelimitedAddresses(str))
-		if err != nil {
-			return nil, err
-		}
-	default:
-		return nil, err
+// Date parses the Date header field.
+func (e *Envelope) Date() (time.Time, error) {
+	hdr := e.GetHeader("Date")
+	if hdr == "" {
+		return time.Time{}, mail.ErrHeaderNotPresent
 	}
-	return ret, nil
+	return mail.ParseDate(hdr)
 }
 
 // Clone returns a clone of the current Envelope
@@ -155,25 +146,36 @@ func (e *Envelope) Clone() *Envelope {
 // provided reader into an Envelope, downconverting HTML to plain text if needed, and sorting the
 // attachments, inlines and other parts into their respective slices. Errors are collected from all
 // Parts and placed into the Envelope.Errors slice.
+// Uses default parser.
 func ReadEnvelope(r io.Reader) (*Envelope, error) {
+	return defaultParser.ReadEnvelope(r)
+}
+
+// ReadEnvelope is the same as ReadEnvelope, but respects parser configurations.
+func (p Parser) ReadEnvelope(r io.Reader) (*Envelope, error) {
 	// Read MIME parts from reader
-	root, err := ReadParts(r)
+	root, err := p.ReadParts(r)
 	if err != nil {
 		return nil, errors.WithMessage(err, "Failed to ReadParts")
 	}
-	return EnvelopeFromPart(root)
+	return p.EnvelopeFromPart(root)
 }
 
 // EnvelopeFromPart uses the provided Part tree to build an Envelope, downconverting HTML to plain
 // text if needed, and sorting the attachments, inlines and other parts into their respective
 // slices.  Errors are collected from all Parts and placed into the Envelopes Errors slice.
 func EnvelopeFromPart(root *Part) (*Envelope, error) {
+	return defaultParser.EnvelopeFromPart(root)
+}
+
+// EnvelopeFromPart is the same as EnvelopeFromPart, but respects parser configurations.
+func (p Parser) EnvelopeFromPart(root *Part) (*Envelope, error) {
 	e := &Envelope{
 		Root:   root,
 		header: &root.Header,
 	}
 
-	if detectMultipartMessage(root) {
+	if detectMultipartMessage(root, p.multipartWOBoundaryAsSinglePart) {
 		// Multi-part message (message with attachments, etc)
 		if err := parseMultiPartBody(root, e); err != nil {
 			return nil, err
@@ -202,13 +204,9 @@ func EnvelopeFromPart(root *Part) (*Envelope, error) {
 			"Message did not contain a text/plain part")
 		var err error
 		if e.Text, err = html2text.FromString(e.HTML); err != nil {
-			// Downcoversion shouldn't fail
-			e.Text = ""
+			e.Text = "" // Down-conversion shouldn't fail
 			p := e.Root.BreadthMatchFirst(matchHTMLBodyPart)
-			p.addError(
-				ErrorPlainTextFromHTML,
-				"Failed to downconvert HTML: %v",
-				err)
+			p.addError(ErrorPlainTextFromHTML, "Failed to downconvert HTML: %v", err)
 		}
 	}
 
@@ -216,11 +214,7 @@ func EnvelopeFromPart(root *Part) (*Envelope, error) {
 	if e.Root != nil {
 		_ = e.Root.DepthMatchAll(func(part *Part) bool {
 			// Using DepthMatchAll to traverse all parts, don't care about result.
-			for i := range part.Errors {
-				// Range index is needed to get the correct address, because range value points to
-				// a locally scoped variable.
-				e.Errors = append(e.Errors, part.Errors[i])
-			}
+			e.Errors = append(e.Errors, part.Errors...)
 			return false
 		})
 	}
@@ -235,7 +229,7 @@ func parseTextOnlyBody(root *Part, e *Envelope) error {
 	var charset string
 	var isHTML bool
 	if ctype := root.Header.Get(hnContentType); ctype != "" {
-		if mediatype, mparams, _, err := ParseMediaType(ctype); err == nil {
+		if mediatype, mparams, _, err := root.parseMediaType(ctype); err == nil {
 			isHTML = (mediatype == ctTextHTML)
 			if mparams[hpCharset] != "" {
 				charset = mparams[hpCharset]
@@ -274,16 +268,16 @@ func parseTextOnlyBody(root *Part, e *Envelope) error {
 func parseMultiPartBody(root *Part, e *Envelope) error {
 	// Parse top-level multipart
 	ctype := root.Header.Get(hnContentType)
-	mediatype, params, _, err := ParseMediaType(ctype)
+	mediatype, params, _, err := root.parseMediaType(ctype)
 	if err != nil {
-		return fmt.Errorf("Unable to parse media type: %v", err)
+		return fmt.Errorf("unable to parse media type: %v", err)
 	}
 	if !strings.HasPrefix(mediatype, ctMultipartPrefix) {
-		return fmt.Errorf("Unknown mediatype: %v", mediatype)
+		return fmt.Errorf("unknown mediatype: %v", mediatype)
 	}
 	boundary := params[hpBoundary]
 	if boundary == "" {
-		return fmt.Errorf("Unable to locate boundary param in Content-Type header")
+		return fmt.Errorf("unable to locate boundary param in Content-Type header")
 	}
 
 	// Locate text body
@@ -308,7 +302,7 @@ func parseMultiPartBody(root *Part, e *Envelope) error {
 	}
 
 	// Locate HTML body
-	p := root.BreadthMatchFirst(matchHTMLBodyPart)
+	p := root.DepthMatchFirst(matchHTMLBodyPart)
 	if p != nil {
 		e.HTML += string(p.Content)
 	}
@@ -343,63 +337,4 @@ func parseMultiPartBody(root *Part, e *Envelope) error {
 // Used by Part matchers to locate the HTML body.  Not inlined because it's used in multiple places.
 func matchHTMLBodyPart(p *Part) bool {
 	return p.ContentType == ctTextHTML && p.Disposition != cdAttachment
-}
-
-// Used by AddressList to ensure that address lists are properly delimited
-func ensureCommaDelimitedAddresses(s string) string {
-	// This normalizes the whitespace, but may interfere with CFWS (comments with folding whitespace)
-	// RFC-5322 3.4.0:
-	//      because some legacy implementations interpret the comment,
-	//      comments generally SHOULD NOT be used in address fields
-	//      to avoid confusing such implementations.
-	s = strings.Join(strings.Fields(s), " ")
-
-	inQuotes := false
-	inDomain := false
-	escapeSequence := false
-	sb := strings.Builder{}
-	for _, r := range s {
-		if escapeSequence {
-			escapeSequence = false
-			sb.WriteRune(r)
-			continue
-		}
-		if r == '"' {
-			inQuotes = !inQuotes
-			sb.WriteRune(r)
-			continue
-		}
-		if inQuotes {
-			if r == '\\' {
-				escapeSequence = true
-				sb.WriteRune(r)
-				continue
-			}
-		} else {
-			if r == '@' {
-				inDomain = true
-				sb.WriteRune(r)
-				continue
-			}
-			if inDomain {
-				if r == ';' {
-					sb.WriteRune(r)
-					break
-				}
-				if r == ',' {
-					inDomain = false
-					sb.WriteRune(r)
-					continue
-				}
-				if r == ' ' {
-					inDomain = false
-					sb.WriteRune(',')
-					sb.WriteRune(r)
-					continue
-				}
-			}
-		}
-		sb.WriteRune(r)
-	}
-	return sb.String()
 }
