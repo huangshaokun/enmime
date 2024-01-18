@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"io"
 	"math/rand"
-	"mime/quotedprintable"
 	"net/textproto"
 	"strconv"
 	"strings"
