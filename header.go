@@ -9,10 +9,9 @@ import (
 	"net/textproto"
 	"strings"
 
-	"github.com/jhillyerd/enmime/internal/coding"
-	"github.com/jhillyerd/enmime/internal/stringutil"
-	inttp "github.com/jhillyerd/enmime/internal/textproto"
-	"github.com/jhillyerd/enmime/mediatype"
+	"github.com/jhillyerd/enmime/v2/internal/coding"
+	"github.com/jhillyerd/enmime/v2/internal/stringutil"
+	inttp "github.com/jhillyerd/enmime/v2/internal/textproto"
 
 	"github.com/pkg/errors"
 )
@@ -99,24 +98,6 @@ func ParseAddressList(list string) ([]*mail.Address, error) {
 	}
 
 	return ret, nil
-}
-
-// Terminology from RFC 2047:
-//  encoded-word: the entire =?charset?encoding?encoded-text?= string
-//  charset: the character set portion of the encoded word
-//  encoding: the character encoding type used for the encoded-text
-//  encoded-text: the text we are decoding
-
-// ParseMediaType is a more tolerant implementation of Go's mime.ParseMediaType function.
-//
-// Tolerances accounted for:
-//   - Missing ';' between content-type and media parameters
-//   - Repeating media parameters
-//   - Unquoted values in media parameters containing 'tspecials' characters
-func ParseMediaType(ctype string) (mtype string, params map[string]string, invalidParams []string,
-	err error) {
-	// Export of internal function.
-	return mediatype.Parse(ctype)
 }
 
 // ReadHeader reads a block of SMTP or MIME headers and returns a

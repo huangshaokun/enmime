@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/go-test/deep"
-	"github.com/jhillyerd/enmime"
-	"github.com/jhillyerd/enmime/internal/test"
+	"github.com/jhillyerd/enmime/v2"
+	"github.com/jhillyerd/enmime/v2/internal/test"
 )
 
 func TestParseHeaderOnly(t *testing.T) {
@@ -30,7 +30,7 @@ func TestParseHeaderOnly(t *testing.T) {
 		t.Errorf("Expected no HTML body, got %q", e.HTML)
 	}
 	if e.Root == nil {
-		t.Errorf("Expected a root part")
+		t.Error("Expected a root part")
 	}
 	if len(e.Root.Header) != 7 {
 		t.Errorf("Expected 7 headers, got %d", len(e.Root.Header))
@@ -495,6 +495,51 @@ func TestParseHTMLOnlyInline(t *testing.T) {
 	}
 
 	want = ">Test of HTML section<"
+	if !strings.Contains(e.HTML, want) {
+		t.Errorf("HTML: %q should contain %q", e.HTML, want)
+	}
+
+	if len(e.Inlines) != 1 {
+		t.Error("Should one inline, got:", len(e.Inlines))
+	}
+	if len(e.Attachments) > 0 {
+		t.Fatal("Should have no attachments, got:", len(e.Attachments))
+	}
+
+	want = "favicon.png"
+	got := e.Inlines[0].FileName
+	if got != want {
+		t.Error("FileName got:", got, "want:", want)
+	}
+	if !bytes.HasPrefix(e.Inlines[0].Content, []byte{0x89, 'P', 'N', 'G'}) {
+		t.Error("Inline should have correct content")
+	}
+}
+
+func TestParseHTMLOnlyInlineTextDisabled(t *testing.T) {
+	msg := test.OpenTestData("mail", "html-only-inline.raw")
+
+	parser := enmime.NewParser(enmime.DisableTextConversion(true))
+	e, err := parser.ReadEnvelope(msg)
+	if err != nil {
+		t.Fatal("Failed to parse MIME:", err)
+	}
+
+	if len(e.Errors) == 1 {
+		want := enmime.ErrorPlainTextFromHTML
+		got := e.Errors[0].Name
+		if got != want {
+			t.Errorf("e.Errors[0] got: %v, want: %v", got, want)
+		}
+	} else {
+		t.Errorf("len(e.Errors) got: %v, want: 1", len(e.Errors))
+	}
+
+	if e.Text != "" {
+		t.Errorf("Downconverted Text was %q, should be empty", e.Text)
+	}
+
+	want := ">Test of HTML section<"
 	if !strings.Contains(e.HTML, want) {
 		t.Errorf("HTML: %q should contain %q", e.HTML, want)
 	}
@@ -998,11 +1043,11 @@ func TestAttachmentOnly(t *testing.T) {
 		}
 		// Check, if root header is set
 		if len(e.Root.Header) < 1 {
-			t.Errorf("No root header defined, but must be set from binary only part.")
+			t.Error("No root header defined, but must be set from binary only part.")
 		}
 		// Check, that the root part has content
 		if len(e.Root.Content) == 0 {
-			t.Errorf("Root part of envelope has no content.")
+			t.Error("Root part of envelope has no content.")
 		}
 	}
 }

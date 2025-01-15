@@ -48,8 +48,7 @@ func MaxStoredPartErrors(n int) Option {
 type maxStoredPartErrorsOption int
 
 func (o maxStoredPartErrorsOption) apply(p *Parser) {
-	max := int(o)
-	p.maxStoredPartErrors = &max
+	p.maxStoredPartErrors = int(o)
 }
 
 // RawContent if set to true will not try to decode the CTE and return the raw part content.
@@ -75,4 +74,53 @@ type parseMediaTypeOption CustomParseMediaType
 
 func (o parseMediaTypeOption) apply(p *Parser) {
 	p.customParseMediaType = CustomParseMediaType(o)
+}
+
+type stripMediaTypeInvalidCharactersOption bool
+
+func (o stripMediaTypeInvalidCharactersOption) apply(p *Parser) {
+	p.stripMediaTypeInvalidCharacters = bool(o)
+}
+
+// StripMediaTypeInvalidCharacters sets stripMediaTypeInvalidCharacters option. If true, invalid characters
+// will be removed from media type during parsing.
+func StripMediaTypeInvalidCharacters(stripMediaTypeInvalidCharacters bool) Option {
+	return stripMediaTypeInvalidCharactersOption(stripMediaTypeInvalidCharacters)
+}
+
+type disableTextConversionOption bool
+
+func (o disableTextConversionOption) apply(p *Parser) {
+	p.disableTextConversion = bool(o)
+}
+
+// DisableTextConversion sets the disableTextConversion option. When true, there will be no
+// automated down conversion of HTML to text when a plain/text body is missing.
+func DisableTextConversion(disableTextConversion bool) Option {
+	return disableTextConversionOption(disableTextConversion)
+}
+
+type disableCharacterDetectionOption bool
+
+func (o disableCharacterDetectionOption) apply(p *Parser) {
+	p.disableCharacterDetection = bool(o)
+}
+
+// DisableCharacterDetection sets the disableCharacterDetection option. When true, the parser will use the
+// defined character set if it is defined in the message part.
+func DisableCharacterDetection(disableCharacterDetection bool) Option {
+	return disableCharacterDetectionOption(disableCharacterDetection)
+}
+
+type minCharsetDetectRunesOption int
+
+func (o minCharsetDetectRunesOption) apply(p *Parser) {
+	p.minCharsetDetectRunes = int(o)
+}
+
+// MinCharsetDetectRunes sets the minimum length of a MIME part before enmime will attempt to
+// detect its character set.  The shorter the text, the more likely an incorrect character set
+// will be chosen.  The default is 100.
+func MinCharsetDetectRunes(minCharsetDetectRunes int) Option {
+	return minCharsetDetectRunesOption(minCharsetDetectRunes)
 }

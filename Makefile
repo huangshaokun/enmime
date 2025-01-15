@@ -27,7 +27,6 @@ simplify:
 
 lint:
 	@test -z "$(shell gofmt -l . | tee /dev/stderr)" || echo "[WARN] Fix formatting issues with 'make fmt'"
-	@golint -set_exit_status $(PKGS)
 	@go vet $(PKGS)
 
 reflex:

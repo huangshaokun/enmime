@@ -7,11 +7,12 @@ import (
 	"mime"
 	"net/textproto"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/huangshaokun/mimequotedprintable"
-	"github.com/jhillyerd/enmime/internal/coding"
-	"github.com/jhillyerd/enmime/internal/stringutil"
+	"github.com/jhillyerd/enmime/v2/internal/coding"
+	"github.com/jhillyerd/enmime/v2/internal/stringutil"
 )
 
 // b64Percent determines the percent of non-ASCII characters enmime will tolerate before switching
@@ -22,6 +23,7 @@ type transferEncoding byte
 
 const (
 	te7Bit transferEncoding = iota
+	te8Bit
 	teQuoted
 	teBase64
 	teRaw
@@ -50,7 +52,10 @@ func (p *Part) Encode(writer io.Writer) error {
 		}
 		p.Content = p.Content[:n]
 	}
-	cte := p.setupMIMEHeaders()
+	cte := teRaw
+	if p.parser == nil || !p.parser.rawContent {
+		cte = p.setupMIMEHeaders()
+	}
 	// Encode this part.
 	b := bufio.NewWriter(writer)
 	if err := p.encodeHeader(b); err != nil {
@@ -99,27 +104,37 @@ func (p *Part) setupMIMEHeaders() transferEncoding {
 
 	// If we are encoding a part that previously had content-transfer-encoding set, unset it so
 	// the correct encoding detection can be done below.
-	if p.parser != nil && !p.parser.rawContent {
-		p.Header.Del(hnContentEncoding)
-	}
+	p.Header.Del(hnContentEncoding)
 
 	cte := te7Bit
 	if len(p.Content) > 0 {
-		cte = teBase64
-		if p.TextContent() && p.ContentReader == nil {
-			cte = selectTransferEncoding(p.Content, false)
-			if p.Charset == "" {
-				p.Charset = utf8
+		if strings.Index(strings.ToLower(p.ContentType), "message/") == 0 {
+			// RFC 1341: `message` types must have no encoding other than "7bit", "8bit", or
+			// "binary". The message header fields are always US-ASCII in any case, and data within
+			// the body can still be encoded, in which case the Content-Transfer-Encoding header
+			// field in the encapsulated message will reflect this.
+			cte = te8Bit
+		} else {
+			cte = teBase64
+			if p.TextContent() && p.ContentReader == nil {
+				cte = p.selectTransferEncoding(p.Content, false)
+				if p.Charset == "" {
+					p.Charset = utf8
+				}
 			}
 		}
+
 		// RFC 2045: 7bit is assumed if CTE header not present.
 		switch cte {
+		case te8Bit:
+			p.Header.Set(hnContentEncoding, cte8Bit)
 		case teBase64:
 			p.Header.Set(hnContentEncoding, cteBase64)
 		case teQuoted:
 			p.Header.Set(hnContentEncoding, cteQuotedPrintable)
 		}
 	}
+
 	// Setup headers.
 	if p.FirstChild != nil && p.Boundary == "" {
 		// Multipart, generate random boundary marker.
@@ -129,12 +144,13 @@ func (p *Part) setupMIMEHeaders() transferEncoding {
 		p.Header.Set(hnContentID, coding.ToIDHeader(p.ContentID))
 	}
 	fileName := p.FileName
-	switch selectTransferEncoding([]byte(p.FileName), true) {
+	switch p.selectTransferEncoding([]byte(p.FileName), true) {
 	case teBase64:
 		fileName = mime.BEncoding.Encode(utf8, p.FileName)
 	case teQuoted:
 		fileName = mime.QEncoding.Encode(utf8, p.FileName)
 	}
+
 	if p.ContentType != "" {
 		// Build content type header.
 		param := make(map[string]string)
@@ -149,6 +165,7 @@ func (p *Part) setupMIMEHeaders() transferEncoding {
 		}
 		p.Header.Set(hnContentType, p.ContentType)
 	}
+
 	if p.Disposition != "" {
 		// Build disposition header.
 		param := make(map[string]string)
@@ -161,6 +178,7 @@ func (p *Part) setupMIMEHeaders() transferEncoding {
 		}
 		p.Header.Set(hnContentDisposition, p.Disposition)
 	}
+
 	return cte
 }
 
@@ -177,7 +195,7 @@ func (p *Part) encodeHeader(b *bufio.Writer) error {
 		for _, v := range p.Header[k] {
 			encv := v
 			if !rawContent {
-				switch selectTransferEncoding([]byte(v), true) {
+				switch p.selectTransferEncoding([]byte(v), true) {
 				case teBase64:
 					encv = mime.BEncoding.Encode(utf8, v)
 				case teQuoted:
@@ -285,10 +303,15 @@ func (p *Part) encodeContentFromReader(b *bufio.Writer) error {
 }
 
 // selectTransferEncoding scans content for non-ASCII characters and selects 'b' or 'q' encoding.
-func selectTransferEncoding(content []byte, quoteLineBreaks bool) transferEncoding {
+func (p *Part) selectTransferEncoding(content []byte, quoteLineBreaks bool) transferEncoding {
 	if len(content) == 0 {
 		return te7Bit
 	}
+
+	if p.encoder != nil && p.encoder.forceQuotedPrintableCteOption {
+		return teQuoted
+	}
+
 	// Binary chars remaining before we choose b64 encoding.
 	threshold := b64Percent * len(content) / 100
 	bincount := 0

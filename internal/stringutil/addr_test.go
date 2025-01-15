@@ -4,7 +4,7 @@ import (
 	"net/mail"
 	"testing"
 
-	"github.com/jhillyerd/enmime/internal/stringutil"
+	"github.com/jhillyerd/enmime/v2/internal/stringutil"
 )
 
 func TestJoinAddressEmpty(t *testing.T) {
@@ -106,6 +106,22 @@ func TestCommaDelimitedAddressLists(t *testing.T) {
 		},
 		{
 			have: `"Joe @ Company" <joe@company.com>;<other@company.com>`,
+			want: `"Joe @ Company" <joe@company.com>,<other@company.com>`,
+		},
+		{
+			have: `"Joe @ Company" <joe@company.com >;<other@company.com>`,
+			want: `"Joe @ Company" <joe@company.com>,<other@company.com>`,
+		},
+		{
+			have: `"Joe @ Company" <joe@company.com>;<other@company.com     >`,
+			want: `"Joe @ Company" <joe@company.com>,<other@company.com>`,
+		},
+		{
+			have: `"Joe @ Company" <joe@company.com>;<  other@company.com>`,
+			want: `"Joe @ Company" <joe@company.com>,<other@company.com>`,
+		},
+		{
+			have: `"Joe @ Company" <  joe@company.com  >;< other@company.com     >`,
 			want: `"Joe @ Company" <joe@company.com>,<other@company.com>`,
 		},
 	}

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhillyerd/enmime"
+	"github.com/jhillyerd/enmime/v2"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -77,6 +77,7 @@ func buildEmail(t *testing.T, mode ReproducibilityMode) string {
 		b = enmime.Builder()
 	case TimestampSource:
 		b = enmime.Builder().RandSeed(time.Now().UTC().UnixNano())
+		time.Sleep(time.Microsecond)
 	default:
 		panic(fmt.Errorf("illegal mode: %d", mode))
 	}

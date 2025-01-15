@@ -27,12 +27,6 @@ const (
 	ErrorMalformedChildPart = "Malformed child part"
 )
 
-// MaxPartErrors limits number of part parsing errors, errors after the limit are ignored.
-// 0 means unlimited.
-//
-// Deprecated: This limit may be set via the `MaxStoredPartErrors` Parser option.
-var MaxPartErrors = 0
-
 // Error describes an error encountered while parsing.
 type Error struct {
 	Name   string // The name or type of error encountered, from Error consts.
@@ -49,13 +43,13 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("[%s] %s: %s", sev, e.Name, e.Detail)
 }
 
-// String formats the enmime.Error as a string. DEPRECATED; use Error() instead.
-func (e *Error) String() string {
-	return e.Error()
+// addError builds a severe Error and appends to the Part error slice.
+func (p *Part) addError(name string, detail string) {
+	p.addProblem(&Error{name, detail, true})
 }
 
-// addWarning builds a severe Error and appends to the Part error slice.
-func (p *Part) addError(name string, detailFmt string, args ...interface{}) {
+// addErrorf builds a severe Error and appends to the Part error slice.
+func (p *Part) addErrorf(name string, detailFmt string, args ...interface{}) {
 	p.addProblem(&Error{
 		name,
 		fmt.Sprintf(detailFmt, args...),
@@ -64,7 +58,12 @@ func (p *Part) addError(name string, detailFmt string, args ...interface{}) {
 }
 
 // addWarning builds a non-severe Error and appends to the Part error slice.
-func (p *Part) addWarning(name string, detailFmt string, args ...interface{}) {
+func (p *Part) addWarning(name string, detail string) {
+	p.addProblem(&Error{name, detail, false})
+}
+
+// addWarningf builds a non-severe Error and appends to the Part error slice.
+func (p *Part) addWarningf(name string, detailFmt string, args ...interface{}) {
 	p.addProblem(&Error{
 		name,
 		fmt.Sprintf(detailFmt, args...),
@@ -74,10 +73,10 @@ func (p *Part) addWarning(name string, detailFmt string, args ...interface{}) {
 
 // addProblem adds general *Error to the Part error slice.
 func (p *Part) addProblem(err *Error) {
-	maxErrors := MaxPartErrors
-	if p.parser != nil && p.parser.maxStoredPartErrors != nil {
+	maxErrors := 0
+	if p.parser != nil {
 		// Override global var.
-		maxErrors = *p.parser.maxStoredPartErrors
+		maxErrors = p.parser.maxStoredPartErrors
 	}
 
 	if (maxErrors == 0) || (len(p.Errors) < maxErrors) {
@@ -97,9 +96,9 @@ type partErrorCollector struct {
 }
 
 func (p *partErrorCollector) AddError(name string, detailFmt string, args ...any) {
-	p.part.addError(name, detailFmt, args...)
+	p.part.addErrorf(name, detailFmt, args...)
 }
 
 func (p *partErrorCollector) AddWarning(name string, detailFmt string, args ...any) {
-	p.part.addWarning(name, detailFmt, args...)
+	p.part.addWarningf(name, detailFmt, args...)
 }

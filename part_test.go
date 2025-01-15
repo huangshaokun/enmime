@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jhillyerd/enmime"
-	"github.com/jhillyerd/enmime/internal/test"
+	"github.com/jhillyerd/enmime/v2"
+	"github.com/jhillyerd/enmime/v2/internal/test"
 )
 
 func TestPlainTextPart(t *testing.T) {
@@ -37,7 +37,7 @@ func TestPlainTextPart(t *testing.T) {
 	test.ContentContainsString(t, p.Content, want)
 }
 
-func TestAddChildInfiniteLoops(t *testing.T) {
+func TestAddChildInfiniteLoops(_ *testing.T) {
 	// Part adds itself
 	parentPart := &enmime.Part{
 		ContentType: "text/plain",
@@ -440,7 +440,7 @@ func TestReadPartErrorPolicy(t *testing.T) {
 	})
 
 	// example policy 3: always recover the partial content read, no matter the error
-	examplePolicy3 := enmime.ReadPartErrorPolicy(func(p *enmime.Part, err error) bool {
+	examplePolicy3 := enmime.ReadPartErrorPolicy(func(_ *enmime.Part, _ error) bool {
 		return true
 	})
 
@@ -1301,4 +1301,72 @@ func TestChardetSuccess(t *testing.T) {
 		}
 		test.ComparePart(t, p, wantp)
 	})
+}
+
+func TestCtypeInvalidCharacters(t *testing.T) {
+	r := test.OpenTestData("parts", "ctype-invalid-characters.raw")
+	parser := enmime.NewParser(enmime.StripMediaTypeInvalidCharacters(true))
+	p, err := parser.ReadParts(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantp := &enmime.Part{
+		PartID:      "0",
+		ContentType: "text/plain",
+	}
+
+	test.ComparePart(t, p, wantp)
+}
+
+func TestDisableCharacterDetectionPart(t *testing.T) {
+	var wantp *enmime.Part
+
+	// chardet considers this test file to be ISO-8859-1.
+	r := test.OpenTestData("parts", "chardet-detection.raw")
+	parser := enmime.NewParser(enmime.DisableCharacterDetection(true))
+	p, err := parser.ReadParts(r)
+
+	// Examine root
+	if err != nil {
+		t.Fatalf("Unexpected parse error: %+v", err)
+	}
+	if p == nil {
+		t.Fatal("Root node should not be nil")
+	}
+
+	wantp = &enmime.Part{
+		ContentType: "text/plain",
+		PartID:      "0",
+		Charset:     "utf-8",
+	}
+
+	test.ComparePart(t, p, wantp)
+}
+
+func TestCharacterDetectionRunes(t *testing.T) {
+	var wantp *enmime.Part
+
+	// chardet considers this test file to be ISO-8859-1.
+	r := test.OpenTestData("parts", "chardet-detection.raw")
+
+	// Set minimum higher than test file length.
+	parser := enmime.NewParser(enmime.MinCharsetDetectRunes(150))
+	p, err := parser.ReadParts(r)
+
+	// Examine root
+	if err != nil {
+		t.Fatalf("Unexpected parse error: %+v", err)
+	}
+	if p == nil {
+		t.Fatal("Root node should not be nil")
+	}
+
+	wantp = &enmime.Part{
+		ContentType: "text/plain",
+		PartID:      "0",
+		Charset:     "utf-8",
+	}
+
+	test.ComparePart(t, p, wantp)
 }

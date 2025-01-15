@@ -3,7 +3,7 @@ package stringutil_test
 import (
 	"testing"
 
-	"github.com/jhillyerd/enmime/internal/stringutil"
+	"github.com/jhillyerd/enmime/v2/internal/stringutil"
 )
 
 func TestWrapEmpty(t *testing.T) {
@@ -75,7 +75,6 @@ func TestWrap(t *testing.T) {
 			if got != tc.want {
 				t.Errorf("got: %q, want: %q", got, tc.want)
 			}
-
 		})
 	}
 }

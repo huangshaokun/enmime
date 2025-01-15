@@ -2,13 +2,14 @@ package enmime_test
 
 import (
 	"bytes"
+	"crypto/rand"
 	"io"
-	"math/rand"
 	"testing"
 	"time"
 
-	"github.com/jhillyerd/enmime"
-	"github.com/jhillyerd/enmime/internal/test"
+	"github.com/jhillyerd/enmime/v2"
+	"github.com/jhillyerd/enmime/v2/internal/test"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestEncodePartEmpty(t *testing.T) {
@@ -104,6 +105,26 @@ func TestEncodePartQuotedPrintableHeaders(t *testing.T) {
 		t.Fatal(err)
 	}
 	test.DiffGolden(t, b.Bytes(), "testdata", "encode", "part-quoted-printable-headers.golden")
+}
+
+func TestEncodePartMessageType(t *testing.T) {
+	p := enmime.NewPart("MeSSaGe/rfc822")
+	p.Boundary = "enmime-abcdefg0123456789"
+
+	c := make([]byte, 2000)
+	for i := range c {
+		c[i] = byte(i % 256)
+	}
+	p.Content = c
+
+	b := &bytes.Buffer{}
+	err := p.Encode(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Expects the binary content to be written without any additional transfer encoding.
+	test.DiffGolden(t, b.Bytes(), "testdata", "encode", "part-message-rfc822.golden")
 }
 
 // oneByOneReader implements io.Reader over a byte slice, returns a single byte on every Read request.
@@ -320,6 +341,21 @@ func TestEncodePartContentBinary(t *testing.T) {
 	test.DiffGolden(t, b.Bytes(), "testdata", "encode", "part-bin-content.golden")
 }
 
+func TestEncodePartWithForceQuotedPrintableCte(t *testing.T) {
+	nonASCIIcontent := bytes.Repeat([]byte{byte(0x10)}, 10)
+	p := enmime.NewPart("text/plain").WithEncoder(enmime.NewEncoder(enmime.ForceQuotedPrintableCte(true)))
+	p.Content = nonASCIIcontent
+	b := &bytes.Buffer{}
+	err := p.Encode(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify output is QP encoded.
+	assert.Equal(t, "quoted-printable", p.Header.Get("Content-Transfer-Encoding"))
+	assert.Contains(t, b.String(), "=10=10=10")
+}
+
 func TestEncodeFileModDate(t *testing.T) {
 	p := enmime.NewPart("text/plain")
 	p.Content = []byte("¡Hola, señor! Welcome to MIME")
@@ -345,19 +381,19 @@ func TestEncodePartContentNonAsciiText(t *testing.T) {
 		threshold + 1,
 	}
 
-	for _, numNonAscii := range cases {
-		nonAscii := bytes.Repeat([]byte{byte(0x10)}, numNonAscii)
-		ascii := bytes.Repeat([]byte{0x41}, 100-numNonAscii)
+	for _, numNonASCII := range cases {
+		nonASCII := bytes.Repeat([]byte{byte(0x10)}, numNonASCII)
+		ascii := bytes.Repeat([]byte{0x41}, 100-numNonASCII)
+		nonASCII = append(nonASCII, ascii...)
 
-		p.Content = append(nonAscii, ascii[:]...)
-
+		p.Content = nonASCII
 		b := &bytes.Buffer{}
 		err := p.Encode(b)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		if numNonAscii < threshold {
+		if numNonASCII < threshold {
 			test.DiffStrings(t, []string{p.Header.Get("Content-Transfer-Encoding")}, []string{"quoted-printable"})
 		} else {
 			test.DiffStrings(t, []string{p.Header.Get("Content-Transfer-Encoding")}, []string{"base64"})

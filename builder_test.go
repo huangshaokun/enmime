@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhillyerd/enmime"
-	"github.com/jhillyerd/enmime/internal/test"
+	"github.com/jhillyerd/enmime/v2"
+	"github.com/jhillyerd/enmime/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -592,7 +592,7 @@ func TestBuilderAddAttachment(t *testing.T) {
 		"text/html",
 		"image/jpeg",
 	}
-	gotParts := root.DepthMatchAll(func(p *enmime.Part) bool { return true })
+	gotParts := root.DepthMatchAll(func(_ *enmime.Part) bool { return true })
 	gotTypes := make([]string, 0)
 	for _, p := range gotParts {
 		gotTypes = append(gotTypes, p.ContentType)
@@ -734,7 +734,7 @@ func TestBuilderAddInline(t *testing.T) {
 		"text/html",
 		"image/jpeg",
 	}
-	gotParts := root.DepthMatchAll(func(p *enmime.Part) bool { return true })
+	gotParts := root.DepthMatchAll(func(_ *enmime.Part) bool { return true })
 	gotTypes := make([]string, 0)
 	for _, p := range gotParts {
 		gotTypes = append(gotTypes, p.ContentType)
@@ -878,7 +878,7 @@ func TestBuilderAddOtherPart(t *testing.T) {
 		"text/html",
 		"image/jpeg",
 	}
-	gotParts := root.DepthMatchAll(func(p *enmime.Part) bool { return true })
+	gotParts := root.DepthMatchAll(func(_ *enmime.Part) bool { return true })
 	gotTypes := make([]string, 0)
 	for _, p := range gotParts {
 		contentType := p.ContentType
@@ -902,7 +902,7 @@ func TestBuilderAddFileOtherPart(t *testing.T) {
 
 	a = enmime.Builder().From("name", "from")
 	_ = a.AddFileOtherPart("zzzDOESNOTEXIST")
-	assert.NoError(t, a.Error(), "AddFileOtherPart error mutated receiver")
+	require.NoError(t, a.Error(), "AddFileOtherPart error mutated receiver")
 
 	a = enmime.Builder().AddFileOtherPart(filepath.Join("testdata", "attach", "fake.png"))
 	require.NoError(t, a.Error())
@@ -1016,7 +1016,7 @@ func TestBuilderFullStructure(t *testing.T) {
 		"multipart/related > image/png",
 		"multipart/mixed > image/jpeg",
 	}
-	gotParts := root.DepthMatchAll(func(p *enmime.Part) bool { return true })
+	gotParts := root.DepthMatchAll(func(_ *enmime.Part) bool { return true })
 	gotTypes := make([]string, 0)
 	for _, p := range gotParts {
 		pct := ""
